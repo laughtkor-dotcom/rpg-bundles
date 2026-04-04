@@ -208,47 +208,103 @@ async function buildContentBundle() {
 }
 
 async function buildCharacterCardsBundle() {
-  let visibleRows = await callRpc('list_public_approved_character_sheets');
-  let rows = Array.isArray(visibleRows) ? visibleRows : [];
+  let rows = [];
 
-  if (rows.length === 0) {
-    const [characters, profiles] = await Promise.all([
-      fetchTableWithFallbacks('characters', [
-        q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast'),
-        q('id,owner_id,full_name,status', 'full_name.asc'),
-      ]),
-      fetchTableWithFallbacks('profiles', [
-        q('id,nickname', 'nickname.asc'),
-      ]),
-    ]);
-
-    const nicknameByProfileId = new Map((profiles ?? []).map((row) => [row.id, row.nickname ?? null]));
-    rows = (characters ?? [])
-      .filter((row) => String(row.status ?? '') === 'approved')
-      .map((row) => ({
-        id: row.id,
-        owner_id: row.owner_id,
-        owner_nickname: nicknameByProfileId.get(row.owner_id) ?? null,
-      }));
+  try {
+    const visibleRows = await callRpc('list_public_approved_character_sheets');
+    rows = Array.isArray(visibleRows) ? visibleRows : [];
+  } catch (error) {
+    // RPC may require end-user auth in some projects; fall back to direct approved rows.
+    rows = [];
   }
 
-  const cards = [];
-  for (const row of rows) {
-    const payload = await callRpc('get_visible_character_sheet', { p_character_id: row.id });
-    if (!payload || !payload.character) continue;
+  const [characters, profiles, characterSkills, skills, characterSpells, spells, characterProfessions, characterStates, stateDefinitions] = await Promise.all([
+    fetchTableWithFallbacks('characters', [
+      q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,appearance_html,biography,biography_html,personality,personality_html,weaknesses,weaknesses_html,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
+      q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,biography,personality,weaknesses,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
+      q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast'),
+    ]),
+    fetchTableWithFallbacks('profiles', [q('id,nickname', 'nickname.asc')]),
+    fetchTableWithFallbacks('character_skills', [q('character_id,skill_id', 'character_id.asc')]),
+    fetchTableWithFallbacks('skills', [
+      q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,category_id,name,description,image_url,is_metamagic', 'name.asc'),
+      q('id,name', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('character_spells', [q('character_id,spell_id', 'character_id.asc')]),
+    fetchTableWithFallbacks('spells', [
+      q('id,branch_id,name,description,summary,content_html,image_url,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,branch_id,name,description,image_url', 'name.asc'),
+      q('id,name', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('character_professions', [q('character_id,profession_id,level', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('character_states', [q('id,character_id,state_id,note,applied_at', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('state_definitions', [
+      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,summary,image_url,is_active', 'name.asc'),
+      q('id,name,image_url,is_active', 'name.asc'),
+      q('id,name', 'name.asc'),
+    ]).catch(() => []),
+  ]);
 
-    cards.push({
-      id: row.id,
-      owner_id: row.owner_id,
-      owner_nickname: row.owner_nickname ?? null,
-      source: String(payload.source ?? 'approved_snapshot'),
-      character: payload.character ?? null,
-      skills: Array.isArray(payload.skills) ? payload.skills : [],
-      spells: Array.isArray(payload.spells) ? payload.spells : [],
-      professions: Array.isArray(payload.professions) ? payload.professions : [],
-      states: Array.isArray(payload.states) ? payload.states : [],
+  const approvedCharacters = (characters ?? []).filter((row) => String(row.status ?? '') === 'approved');
+  const profileById = new Map((profiles ?? []).map((row) => [row.id, row]));
+  const skillById = new Map((skills ?? []).map((row) => [row.id, row]));
+  const spellById = new Map((spells ?? []).map((row) => [row.id, row]));
+  const stateDefinitionById = new Map((stateDefinitions ?? []).map((row) => [row.id, row]));
+
+  const skillLinksByCharacterId = new Map();
+  for (const row of characterSkills ?? []) {
+    const current = skillLinksByCharacterId.get(row.character_id) ?? [];
+    current.push(row.skill_id);
+    skillLinksByCharacterId.set(row.character_id, current);
+  }
+
+  const spellLinksByCharacterId = new Map();
+  for (const row of characterSpells ?? []) {
+    const current = spellLinksByCharacterId.get(row.character_id) ?? [];
+    current.push(row.spell_id);
+    spellLinksByCharacterId.set(row.character_id, current);
+  }
+
+  const professionsByCharacterId = new Map();
+  for (const row of characterProfessions ?? []) {
+    const current = professionsByCharacterId.get(row.character_id) ?? [];
+    current.push({ character_id: row.character_id, profession_id: row.profession_id, level: row.level ?? 1 });
+    professionsByCharacterId.set(row.character_id, current);
+  }
+
+  const statesByCharacterId = new Map();
+  for (const row of characterStates ?? []) {
+    const current = statesByCharacterId.get(row.character_id) ?? [];
+    current.push({
+      id: row.id ?? 0,
+      character_id: row.character_id,
+      state_id: row.state_id,
+      note: row.note ?? null,
+      applied_at: row.applied_at ?? null,
+      state: stateDefinitionById.get(row.state_id) ?? null,
     });
+    statesByCharacterId.set(row.character_id, current);
   }
+
+  const rpcRowIds = new Set((rows ?? []).map((row) => row.id));
+  const sourceRows = rpcRowIds.size > 0
+    ? approvedCharacters.filter((row) => rpcRowIds.has(row.id))
+    : approvedCharacters;
+
+  const cards = sourceRows.map((row) => ({
+    id: row.id,
+    owner_id: row.owner_id,
+    owner_nickname: profileById.get(row.owner_id)?.nickname ?? null,
+    source: 'approved_snapshot',
+    character: { ...row },
+    skills: (skillLinksByCharacterId.get(row.id) ?? []).map((skillId) => skillById.get(skillId)).filter(Boolean),
+    spells: (spellLinksByCharacterId.get(row.id) ?? []).map((spellId) => spellById.get(spellId)).filter(Boolean),
+    professions: professionsByCharacterId.get(row.id) ?? [],
+    states: statesByCharacterId.get(row.id) ?? [],
+  }));
 
   cards.sort((a, b) => String(a.character?.full_name ?? '').localeCompare(String(b.character?.full_name ?? ''), 'ru'));
 
@@ -257,6 +313,7 @@ async function buildCharacterCardsBundle() {
     cards,
   };
 }
+
 
 function buildManifest({ reference, content, characterCards }) {
   const generatedAt = new Date().toISOString();
