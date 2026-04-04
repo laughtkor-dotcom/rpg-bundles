@@ -36,54 +36,54 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isRetryableStatus(status) {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
 function buildRestUrl(table, query) {
   return `${SUPABASE_URL}/rest/v1/${table}?${query}`;
 }
 
-async function fetchWithRetry(url, init = {}, { attempts = 5, timeoutMs = 25000, label = 'request' } = {}) {
+async function fetchTable(table, query, attempts = 4) {
   let lastError = null;
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
-      clearTimeout(timeout);
-      if (response.status === 429 || response.status >= 500) {
-        const body = await response.text();
-        lastError = new Error(`${label} failed: ${response.status} ${body}`);
-        if (attempt < attempts) {
-          await sleep(500 * attempt);
+      const res = await fetch(buildRestUrl(table, query), { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        const error = new Error(`REST ${table} failed: ${res.status} ${text}`);
+        if (isRetryableStatus(res.status) && attempt < attempts) {
+          await sleep(400 * attempt);
+          lastError = error;
           continue;
         }
-        throw lastError;
+        throw error;
       }
-      return response;
+      return await res.json();
     } catch (error) {
-      clearTimeout(timeout);
       lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < attempts) {
-        await sleep(500 * attempt);
-        continue;
-      }
+      if (attempt >= attempts) break;
+      await sleep(400 * attempt);
     }
   }
-  throw lastError ?? new Error(`${label} failed`);
+
+  throw lastError ?? new Error(`REST ${table} failed`);
 }
 
-async function fetchTable(table, query) {
-  const res = await fetchWithRetry(buildRestUrl(table, query), { headers }, { label: `REST ${table}` });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`REST ${table} failed: ${res.status} ${text}`);
+async function fetchOptionalTable(table, queries, defaultValue = []) {
+  try {
+    return await fetchTableWithFallbacks(table, queries);
+  } catch (_error) {
+    return defaultValue;
   }
-  return await res.json();
 }
 
 async function fetchTableWithFallbacks(table, queries) {
   const errors = [];
-  for (const q of queries) {
+  for (const qv of queries) {
     try {
-      return await fetchTable(table, q);
+      return await fetchTable(table, qv);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -91,8 +91,8 @@ async function fetchTableWithFallbacks(table, queries) {
   throw new Error(`REST ${table} failed for all query variants:\n${errors.join('\n')}`);
 }
 
-function q(select, order) {
-  return `select=${select}&order=${order}`;
+function q(select, order = 'id.asc') {
+  return `select=${encodeURIComponent(select)}&order=${encodeURIComponent(order)}`;
 }
 
 function sortBySortOrderThen(rows, field = 'name') {
@@ -100,12 +100,15 @@ function sortBySortOrderThen(rows, field = 'name') {
     const left = Number(a?.sort_order ?? 100);
     const right = Number(b?.sort_order ?? 100);
     if (left !== right) return left - right;
-    return String(a?.[field] ?? a?.title ?? '').localeCompare(String(b?.[field] ?? b?.title ?? ''), 'ru');
+    return String(a?.[field] ?? a?.title ?? a?.label ?? '').localeCompare(
+      String(b?.[field] ?? b?.title ?? b?.label ?? ''),
+      'ru',
+    );
   });
 }
 
 function normalizeOptionalKeys(rows, keys) {
-  return rows.map((row) => {
+  return (rows ?? []).map((row) => {
     const next = { ...row };
     for (const key of keys) {
       if (!(key in next)) next[key] = null;
@@ -115,57 +118,41 @@ function normalizeOptionalKeys(rows, keys) {
 }
 
 function withDefaultSortOrder(rows) {
-  return rows.map((row, index) => ({
-    sort_order: row?.sort_order ?? (index + 1) * 10,
+  return (rows ?? []).map((row, index) => ({
     ...row,
+    sort_order: row?.sort_order ?? (index + 1) * 10,
   }));
 }
 
+function buildPublicBundleEntry(name, generatedAt) {
+  return {
+    path: `bundles/${name}.json`,
+    public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/${name}.json`,
+    generated_at: generatedAt,
+  };
+}
+
 async function buildReferenceBundle() {
-  const [races, subraces, factions, professions, skillCategories, skills, branches, spells, stateDefinitions] = await Promise.all([
-    fetchTableWithFallbacks('races', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('subraces', [
-      q('id,race_id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,race_id,name,description,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('factions', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('professions', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('skill_categories', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,summary,content_html,image_url,is_active', 'name.asc'),
-      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
-      q('id,name,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('skills', [
-      q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc'),
-      q('id,category_id,name,description,image_url,is_metamagic,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('magic_branches', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,image_url,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('spells', [
-      q('id,branch_id,name,description,summary,content_html,image_url,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc'),
-      q('id,branch_id,name,description,image_url,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('state_definitions', [
-      q('id,name,summary,description,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
-      q('id,name,content_html,image_url,is_active', 'name.asc'),
-      q('id,name,image_url,is_active', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
+  const [
+    races,
+    subraces,
+    factions,
+    professions,
+    skillCategories,
+    skills,
+    branches,
+    spells,
+    stateDefinitions,
+  ] = await Promise.all([
+    fetchTableWithFallbacks('races', [q('*', 'id.asc'), q('id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('subraces', [q('*', 'id.asc'), q('id,race_id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('factions', [q('*', 'id.asc'), q('id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('professions', [q('*', 'id.asc'), q('id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('skill_categories', [q('*', 'id.asc'), q('id,name,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('skills', [q('*', 'id.asc'), q('id,category_id,name,description,image_url,is_metamagic', 'id.asc')]),
+    fetchTableWithFallbacks('magic_branches', [q('*', 'id.asc'), q('id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('spells', [q('*', 'id.asc'), q('id,branch_id,name,description,image_url,is_active', 'id.asc')]),
+    fetchTableWithFallbacks('state_definitions', [q('*', 'id.asc'), q('id,name,image_url,is_active', 'id.asc')]),
   ]);
 
   return {
@@ -184,174 +171,32 @@ async function buildReferenceBundle() {
 
 async function buildContentBundle() {
   const [contentPages, libraryEntries, npcEntries, bestiaryEntries] = await Promise.all([
-    fetchTableWithFallbacks('content_pages', [
-      q('id,slug,title,content,summary,content_html,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
-      q('id,slug,title,content,summary,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
-      q('id,slug,title,content,summary,image_url,external_url,is_published,updated_at', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('library_entries', [
-      q('id,title,entry_type,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,title,entry_type,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,title,entry_type,summary,content,image_url,external_url,is_published', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('npc_entries', [
-      q('id,name,npc_type,faction_id,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,name,npc_type,faction_id,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,name,npc_type,faction_id,summary,description,content,image_url,external_url,is_published', 'id.asc'),
-      q('id,name,npc_type,faction_id,summary,content,image_url,external_url,is_published', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('bestiary_entries', [
-      q('id,name,creature_type,danger_level,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,name,creature_type,danger_level,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      q('id,name,creature_type,danger_level,summary,description,content,image_url,external_url,is_published', 'id.asc'),
-      q('id,name,creature_type,danger_level,summary,content,image_url,external_url,is_published', 'id.asc'),
-    ]),
+    fetchOptionalTable('content_pages', [q('*', 'id.asc')]),
+    fetchOptionalTable('library_entries', [q('*', 'id.asc')]),
+    fetchOptionalTable('npc_entries', [q('*', 'id.asc')]),
+    fetchOptionalTable('bestiary_entries', [q('*', 'id.asc')]),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    content_pages: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(contentPages), ['content', 'summary', 'content_html', 'image_url', 'external_url', 'is_published', 'updated_at']), 'title'),
-    library_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(libraryEntries), ['entry_type', 'summary', 'content', 'content_html', 'image_url', 'external_url', 'is_published']), 'title'),
-    npc_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(npcEntries), ['npc_type', 'faction_id', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
-    bestiary_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(bestiaryEntries), ['creature_type', 'danger_level', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
-  };
-}
-
-async function buildMapsPublicBundle() {
-  const [maps, locations] = await Promise.all([
-    fetchTableWithFallbacks('maps', [
-      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,name,description,image_url,is_active', 'name.asc'),
-      q('id,name,image_url,is_active', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('locations', [
-      q('id,map_id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      q('id,map_id,name,description,image_url,is_active', 'name.asc'),
-      q('id,map_id,name,image_url,is_active', 'name.asc'),
-    ]),
-  ]);
-
-  return {
-    generated_at: new Date().toISOString(),
-    maps: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(maps), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
-    locations: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(locations), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
-  };
-}
-
-async function buildShopCatalogBundle() {
-  const [shopItems, items, thresholds, effectDefinitions, factions] = await Promise.all([
-    fetchTableWithFallbacks('shop_items', [
-      q('id,item_id,buy_price,sell_price,is_active,stock_quantity', 'id.asc'),
-      q('id,item_id,buy_price,is_active,stock_quantity', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('items', [
-      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
-      q('id,name,category,rarity,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type', 'name.asc'),
-      q('id,name,category,rarity,image_url,description', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('reputation_thresholds', [q('id,faction_id,target_type,target_id,required_value,note', 'id.asc')]),
-    fetchTableWithFallbacks('effect_definitions', [
-      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('factions', [q('id,name', 'name.asc')]),
-  ]);
-
-  return {
-    generated_at: new Date().toISOString(),
-    shop_items: normalizeOptionalKeys(shopItems, ['sell_price', 'stock_quantity']),
-    items: normalizeOptionalKeys(items, ['description', 'image_url', 'category', 'rarity', 'category_id', 'rarity_id', 'buy_price', 'sell_price', 'can_gift', 'can_delete', 'is_equippable', 'equip_slot_type', 'weapon_handedness', 'item_use_type', 'teaches_skill_id', 'teaches_spell_id']),
-    thresholds: thresholds.filter((row) => row.target_type === 'shop_item'),
-    effect_definitions: normalizeOptionalKeys(effectDefinitions, ['description', 'image_url', 'craft_success_bonus', 'metamagic_power_bonus', 'shop_discount_percent']),
-    factions,
-  };
-}
-
-async function buildCraftCatalogBundle() {
-  const [items, skills, professions, recipes, recipeIngredients, recipeSkillRequirements, recipeSpellRequirements, spells, metamagicOptions, thresholds, effectDefinitions] = await Promise.all([
-    fetchTableWithFallbacks('items', [
-      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
-      q('id,name,category,rarity,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type', 'name.asc'),
-      q('id,name,category,rarity,image_url,description', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('skills', [
-      q('id,name,description,category_id,image_url,is_metamagic', 'name.asc'),
-      q('id,name,category_id,image_url,is_metamagic', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('professions', [
-      q('id,name,description,image_url', 'name.asc'),
-      q('id,name,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('recipes', [
-      q('id,name,description,recipe_type,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
-      q('id,name,recipe_type,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('recipe_ingredients', [q('id,recipe_id,item_id,quantity', 'id.asc')]),
-    fetchTableWithFallbacks('recipe_skill_requirements', [q('id,recipe_id,skill_id', 'id.asc')]),
-    fetchTableWithFallbacks('recipe_spell_requirements', [q('id,recipe_id,spell_id', 'id.asc')]),
-    fetchTableWithFallbacks('spells', [
-      q('id,name,description,branch_id,image_url', 'name.asc'),
-      q('id,name,branch_id,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('metamagic_options', [
-      q('id,name,description,required_skill_id', 'name.asc'),
-      q('id,name,required_skill_id', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('reputation_thresholds', [q('id,faction_id,target_type,target_id,required_value,note', 'id.asc')]),
-    fetchTableWithFallbacks('effect_definitions', [
-      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category', 'name.asc'),
-    ]),
-  ]);
-
-  return {
-    generated_at: new Date().toISOString(),
-    items: normalizeOptionalKeys(items, ['description', 'image_url', 'category_id', 'rarity_id', 'equip_slot_type', 'item_use_type', 'teaches_skill_id', 'teaches_spell_id']),
-    skills: normalizeOptionalKeys(skills, ['description', 'category_id', 'image_url', 'is_metamagic']),
-    professions: normalizeOptionalKeys(professions, ['description', 'image_url']),
-    recipes: normalizeOptionalKeys(recipes, ['description', 'recipe_type', 'success_chance', 'required_profession_id', 'required_profession_level', 'base_item_id', 'base_item_quantity']),
-    recipe_ingredients: recipeIngredients,
-    recipe_skill_requirements: recipeSkillRequirements,
-    recipe_spell_requirements: recipeSpellRequirements,
-    spells: normalizeOptionalKeys(spells, ['description', 'branch_id', 'image_url']),
-    metamagic_options: normalizeOptionalKeys(metamagicOptions, ['description', 'required_skill_id']),
-    thresholds: thresholds.filter((row) => row.target_type === 'recipe'),
-    effect_definitions: normalizeOptionalKeys(effectDefinitions, ['description', 'image_url', 'craft_success_bonus', 'metamagic_power_bonus', 'shop_discount_percent']),
+    content_pages: sortBySortOrderThen(withDefaultSortOrder(contentPages), 'title'),
+    library_entries: sortBySortOrderThen(withDefaultSortOrder(libraryEntries), 'title'),
+    npc_entries: sortBySortOrderThen(withDefaultSortOrder(npcEntries), 'name'),
+    bestiary_entries: sortBySortOrderThen(withDefaultSortOrder(bestiaryEntries), 'name'),
   };
 }
 
 async function buildCharacterCardsBundle() {
   const [characters, profiles, characterSkills, skills, characterSpells, spells, characterProfessions, characterStates, stateDefinitions] = await Promise.all([
-    fetchTableWithFallbacks('characters', [
-      q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,appearance_html,biography,biography_html,personality,personality_html,weaknesses,weaknesses_html,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
-      q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast'),
-    ]),
-    fetchTableWithFallbacks('profiles', [q('id,nickname,vk_user_id', 'nickname.asc'), q('id,nickname', 'nickname.asc')]),
-    fetchTableWithFallbacks('character_skills', [q('character_id,skill_id', 'character_id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('skills', [
-      q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('character_spells', [q('character_id,spell_id', 'character_id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('spells', [
-      q('id,branch_id,name,description,summary,content_html,image_url,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('character_professions', [q('character_id,profession_id,level', 'character_id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('character_states', [q('id,character_id,state_id,note,applied_at', 'character_id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('state_definitions', [
-      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
-      q('id,name,image_url,is_active', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]).catch(() => []),
+    fetchTableWithFallbacks('characters', [q('*', 'updated_at.desc.nullslast'), q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast')]),
+    fetchOptionalTable('profiles', [q('id,nickname,vk_user_id', 'nickname.asc')]),
+    fetchOptionalTable('character_skills', [q('*', 'character_id.asc')]),
+    fetchOptionalTable('skills', [q('*', 'id.asc')]),
+    fetchOptionalTable('character_spells', [q('*', 'character_id.asc')]),
+    fetchOptionalTable('spells', [q('*', 'id.asc')]),
+    fetchOptionalTable('character_professions', [q('*', 'character_id.asc')]),
+    fetchOptionalTable('character_states', [q('*', 'character_id.asc')]),
+    fetchOptionalTable('state_definitions', [q('*', 'id.asc')]),
   ]);
 
   const approvedCharacters = (characters ?? []).filter((row) => String(row.status ?? '') === 'approved');
@@ -377,7 +222,7 @@ async function buildCharacterCardsBundle() {
   const professionsByCharacterId = new Map();
   for (const row of characterProfessions ?? []) {
     const current = professionsByCharacterId.get(row.character_id) ?? [];
-    current.push({ character_id: row.character_id, profession_id: row.profession_id, level: row.level ?? 1 });
+    current.push(row);
     professionsByCharacterId.set(row.character_id, current);
   }
 
@@ -385,23 +230,19 @@ async function buildCharacterCardsBundle() {
   for (const row of characterStates ?? []) {
     const current = statesByCharacterId.get(row.character_id) ?? [];
     current.push({
-      id: row.id ?? 0,
-      character_id: row.character_id,
-      state_id: row.state_id,
-      note: row.note ?? null,
-      applied_at: row.applied_at ?? null,
+      ...row,
       state: stateDefinitionById.get(row.state_id) ?? null,
     });
     statesByCharacterId.set(row.character_id, current);
   }
 
   const cards = approvedCharacters.map((row) => {
-    const ownerProfile = profileById.get(row.owner_id) ?? null;
+    const profile = profileById.get(row.owner_id) ?? null;
     return {
       id: row.id,
       owner_id: row.owner_id,
-      owner_vk_user_id: ownerProfile?.vk_user_id != null ? String(ownerProfile.vk_user_id) : null,
-      owner_nickname: ownerProfile?.nickname ?? null,
+      owner_vk_user_id: profile?.vk_user_id ?? null,
+      owner_nickname: profile?.nickname ?? null,
       source: 'approved_snapshot',
       character: { ...row },
       skills: (skillLinksByCharacterId.get(row.id) ?? []).map((skillId) => skillById.get(skillId)).filter(Boolean),
@@ -412,21 +253,99 @@ async function buildCharacterCardsBundle() {
   });
 
   cards.sort((a, b) => String(a.character?.full_name ?? '').localeCompare(String(b.character?.full_name ?? ''), 'ru'));
-  return { generated_at: new Date().toISOString(), cards };
+
+  return {
+    generated_at: new Date().toISOString(),
+    cards,
+  };
+}
+
+async function buildMapsPublicBundle() {
+  const [maps, locations] = await Promise.all([
+    fetchOptionalTable('maps', [q('*', 'id.asc'), q('id,title,slug,image_url,is_active', 'id.asc')]),
+    fetchOptionalTable('locations', [q('*', 'id.asc'), q('id,map_id,title,slug,image_url,is_active', 'id.asc')]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    maps: sortBySortOrderThen(withDefaultSortOrder(maps), 'title'),
+    locations: sortBySortOrderThen(withDefaultSortOrder(locations), 'title'),
+  };
+}
+
+async function buildShopCatalogBundle() {
+  const [shopItems, items, thresholds, effectDefinitions, factions] = await Promise.all([
+    fetchOptionalTable('shop_items', [q('*', 'id.asc')]),
+    fetchOptionalTable('items', [q('*', 'id.asc')]),
+    fetchOptionalTable('reputation_thresholds', [q('*', 'id.asc')]),
+    fetchOptionalTable('effect_definitions', [q('*', 'id.asc')]),
+    fetchOptionalTable('factions', [q('*', 'id.asc')]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    shop_items: shopItems ?? [],
+    items: items ?? [],
+    thresholds: thresholds ?? [],
+    effect_definitions: effectDefinitions ?? [],
+    factions: factions ?? [],
+  };
+}
+
+async function buildCraftCatalogBundle() {
+  const [
+    items,
+    skills,
+    professions,
+    recipes,
+    recipeIngredients,
+    recipeSkillRequirements,
+    recipeSpellRequirements,
+    spells,
+    metamagicOptions,
+    thresholds,
+    effectDefinitions,
+  ] = await Promise.all([
+    fetchOptionalTable('items', [q('*', 'id.asc')]),
+    fetchOptionalTable('skills', [q('*', 'id.asc')]),
+    fetchOptionalTable('professions', [q('*', 'id.asc')]),
+    fetchOptionalTable('recipes', [q('*', 'id.asc')]),
+    fetchOptionalTable('recipe_ingredients', [q('*', 'id.asc')]),
+    fetchOptionalTable('recipe_skill_requirements', [q('*', 'id.asc')]),
+    fetchOptionalTable('recipe_spell_requirements', [q('*', 'id.asc')]),
+    fetchOptionalTable('spells', [q('*', 'id.asc')]),
+    fetchOptionalTable('metamagic_options', [q('*', 'id.asc')]),
+    fetchOptionalTable('reputation_thresholds', [q('*', 'id.asc')]),
+    fetchOptionalTable('effect_definitions', [q('*', 'id.asc')]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    items: items ?? [],
+    skills: skills ?? [],
+    professions: professions ?? [],
+    recipes: recipes ?? [],
+    recipe_ingredients: recipeIngredients ?? [],
+    recipe_skill_requirements: recipeSkillRequirements ?? [],
+    recipe_spell_requirements: recipeSpellRequirements ?? [],
+    spells: spells ?? [],
+    metamagic_options: metamagicOptions ?? [],
+    thresholds: thresholds ?? [],
+    effect_definitions: effectDefinitions ?? [],
+  };
 }
 
 function buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog }) {
-  const generatedAt = new Date().toISOString();
   return {
-    generated_at: generatedAt,
+    generated_at: new Date().toISOString(),
     bucket: 'github-pages',
     bundles: {
-      reference: { path: 'bundles/reference.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/reference.json`, generated_at: reference.generated_at },
-      content: { path: 'bundles/content.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/content.json`, generated_at: content.generated_at },
-      'character-cards': { path: 'bundles/character-cards.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/character-cards.json`, generated_at: characterCards.generated_at },
-      'maps-public': { path: 'bundles/maps-public.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/maps-public.json`, generated_at: mapsPublic.generated_at },
-      'shop-catalog': { path: 'bundles/shop-catalog.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/shop-catalog.json`, generated_at: shopCatalog.generated_at },
-      'craft-catalog': { path: 'bundles/craft-catalog.json', public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/craft-catalog.json`, generated_at: craftCatalog.generated_at },
+      reference: buildPublicBundleEntry('reference', reference.generated_at),
+      content: buildPublicBundleEntry('content', content.generated_at),
+      'character-cards': buildPublicBundleEntry('character-cards', characterCards.generated_at),
+      'maps-public': buildPublicBundleEntry('maps-public', mapsPublic.generated_at),
+      'shop-catalog': buildPublicBundleEntry('shop-catalog', shopCatalog.generated_at),
+      'craft-catalog': buildPublicBundleEntry('craft-catalog', craftCatalog.generated_at),
     },
   };
 }
@@ -472,10 +391,10 @@ async function main() {
 
   const reference = await buildReferenceBundle();
   const content = await buildContentBundle();
+  const characterCards = await buildCharacterCardsBundle();
   const mapsPublic = await buildMapsPublicBundle();
   const shopCatalog = await buildShopCatalogBundle();
   const craftCatalog = await buildCraftCatalogBundle();
-  const characterCards = await buildCharacterCardsBundle();
 
   const manifest = buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog });
 
