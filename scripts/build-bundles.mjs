@@ -46,9 +46,9 @@ async function fetchTable(table, query) {
 
 async function fetchTableWithFallbacks(table, queries) {
   const errors = [];
-  for (const query of queries) {
+  for (const q of queries) {
     try {
-      return await fetchTable(table, query);
+      return await fetchTable(table, q);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -71,6 +71,10 @@ async function callRpc(name, body = {}) {
   return await res.json();
 }
 
+function q(select, order) {
+  return `select=${select}&order=${order}`;
+}
+
 function sortBySortOrderThen(rows, field = 'name') {
   return [...rows].sort((a, b) => {
     const left = Number(a?.sort_order ?? 100);
@@ -80,18 +84,21 @@ function sortBySortOrderThen(rows, field = 'name') {
   });
 }
 
-function query(select, order) {
-  return `select=${select}&order=${order}`;
-}
-
-function normalizeOptionalTextRows(rows, optionalKeys) {
+function normalizeOptionalKeys(rows, keys) {
   return rows.map((row) => {
     const next = { ...row };
-    for (const key of optionalKeys) {
+    for (const key of keys) {
       if (!(key in next)) next[key] = null;
     }
     return next;
   });
+}
+
+function withDefaultSortOrder(rows) {
+  return rows.map((row, index) => ({
+    sort_order: row?.sort_order ?? (index + 1) * 10,
+    ...row,
+  }));
 }
 
 async function buildReferenceBundle() {
@@ -106,67 +113,97 @@ async function buildReferenceBundle() {
     spells,
     stateDefinitions,
   ] = await Promise.all([
-    fetchTable('races', query('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc')),
-    fetchTable('subraces', query('id,race_id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc')),
-    fetchTable('factions', query('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc')),
-    fetchTable('professions', query('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc')),
-    fetchTableWithFallbacks('skill_categories', [
-      query('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      query('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      query('id,name,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+    fetchTableWithFallbacks('races', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,image_url,is_active', 'name.asc'),
     ]),
-    fetchTable('skills', query('id,category_id,name,description,summary,content_html,image_url,is_metamagic,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc')),
-    fetchTable('magic_branches', query('id,name,description,summary,content_html,image_url,sort_order,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked', 'sort_order.asc.nullslast,name.asc')),
-    fetchTable('spells', query('id,branch_id,name,description,summary,content_html,image_url,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc')),
+    fetchTableWithFallbacks('subraces', [
+      q('id,race_id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,race_id,name,description,image_url,is_active', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('factions', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,image_url,is_active', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('professions', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,image_url,is_active', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('skill_categories', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,summary,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,image_url,is_active', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('skills', [
+      q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc'),
+      q('id,category_id,name,description,image_url,is_metamagic,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('magic_branches', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,image_url,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('spells', [
+      q('id,branch_id,name,description,summary,content_html,image_url,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'sort_order.asc.nullslast,name.asc'),
+      q('id,branch_id,name,description,image_url,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+    ]),
     fetchTableWithFallbacks('state_definitions', [
-      query('id,name,summary,description,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      query('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
-      query('id,name,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,summary,description,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,summary,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,summary,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,content_html,image_url,is_active', 'name.asc'),
+      q('id,name,image_url,is_active', 'name.asc'),
     ]),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    races: sortBySortOrderThen(normalizeOptionalTextRows(races, ['summary', 'content_html'])),
-    subraces: sortBySortOrderThen(normalizeOptionalTextRows(subraces, ['summary', 'content_html'])),
-    factions: sortBySortOrderThen(normalizeOptionalTextRows(factions, ['summary', 'content_html'])),
-    professions: sortBySortOrderThen(normalizeOptionalTextRows(professions, ['summary', 'content_html'])),
-    skill_categories: sortBySortOrderThen(normalizeOptionalTextRows(skillCategories, ['description', 'summary', 'content_html'])),
-    skills: sortBySortOrderThen(normalizeOptionalTextRows(skills, ['summary', 'content_html'])),
-    magic_branches: sortBySortOrderThen(normalizeOptionalTextRows(branches, ['summary', 'content_html'])),
-    spells: sortBySortOrderThen(normalizeOptionalTextRows(spells, ['summary', 'content_html'])),
-    state_definitions: sortBySortOrderThen(normalizeOptionalTextRows(stateDefinitions, ['description', 'summary', 'content_html'])),
+    races: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(races), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    subraces: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(subraces), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    factions: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(factions), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    professions: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(professions), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    skill_categories: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(skillCategories), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    skills: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(skills), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    magic_branches: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(branches), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    spells: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(spells), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
+    state_definitions: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(stateDefinitions), ['description', 'summary', 'content_html', 'image_url', 'is_active'])),
   };
 }
 
 async function buildContentBundle() {
   const [contentPages, libraryEntries, npcEntries, bestiaryEntries] = await Promise.all([
     fetchTableWithFallbacks('content_pages', [
-      query('id,slug,title,content,summary,content_html,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
-      query('id,slug,title,content,summary,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
+      q('id,slug,title,content,summary,content_html,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
+      q('id,slug,title,content,summary,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
+      q('id,slug,title,content,summary,image_url,external_url,is_published,updated_at', 'id.asc'),
     ]),
     fetchTableWithFallbacks('library_entries', [
-      query('id,title,entry_type,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      query('id,title,entry_type,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,is_published', 'id.asc'),
     ]),
     fetchTableWithFallbacks('npc_entries', [
-      query('id,name,npc_type,faction_id,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      query('id,name,npc_type,faction_id,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      query('id,name,npc_type,faction_id,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,image_url,external_url,is_published', 'id.asc'),
     ]),
     fetchTableWithFallbacks('bestiary_entries', [
-      query('id,name,creature_type,danger_level,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      query('id,name,creature_type,danger_level,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
-      query('id,name,creature_type,danger_level,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,image_url,external_url,is_published', 'id.asc'),
     ]),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    content_pages: sortBySortOrderThen(normalizeOptionalTextRows(contentPages, ['summary', 'content_html', 'image_url', 'external_url']), 'title'),
-    library_entries: sortBySortOrderThen(normalizeOptionalTextRows(libraryEntries, ['summary', 'content_html', 'image_url', 'external_url']), 'title'),
-    npc_entries: sortBySortOrderThen(normalizeOptionalTextRows(npcEntries, ['description', 'summary', 'content_html', 'image_url', 'external_url'])),
-    bestiary_entries: sortBySortOrderThen(normalizeOptionalTextRows(bestiaryEntries, ['description', 'summary', 'content_html', 'image_url', 'external_url'])),
+    content_pages: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(contentPages), ['content', 'summary', 'content_html', 'image_url', 'external_url', 'is_published', 'updated_at']), 'title'),
+    library_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(libraryEntries), ['entry_type', 'summary', 'content', 'content_html', 'image_url', 'external_url', 'is_published']), 'title'),
+    npc_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(npcEntries), ['npc_type', 'faction_id', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
+    bestiary_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(bestiaryEntries), ['creature_type', 'danger_level', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
   };
 }
 
