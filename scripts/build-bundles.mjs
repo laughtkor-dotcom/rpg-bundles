@@ -53,9 +53,7 @@ async function fetchTableWithFallbacks(table, queries) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
-  throw new Error(`REST ${table} failed for all query variants:
-${errors.join('
-')}`);
+  throw new Error(`REST ${table} failed for all query variants:\n${errors.join('\n')}`);
 }
 
 async function callRpc(name, body = {}) {
