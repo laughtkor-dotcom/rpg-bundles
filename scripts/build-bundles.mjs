@@ -224,7 +224,7 @@ async function buildCharacterCardsBundle() {
       q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,biography,personality,weaknesses,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
       q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast'),
     ]),
-    fetchTableWithFallbacks('profiles', [q('id,nickname,vk_user_id', 'nickname.asc')]),
+    fetchTableWithFallbacks('profiles', [q('id,nickname,vk_user_id', 'nickname.asc'), q('id,nickname', 'nickname.asc')]),
     fetchTableWithFallbacks('character_skills', [q('character_id,skill_id', 'character_id.asc')]),
     fetchTableWithFallbacks('skills', [
       q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
@@ -317,113 +317,53 @@ async function buildCharacterCardsBundle() {
 
 
 async function buildMapsPublicBundle() {
-  const [maps, locations] = await Promise.all([
-    fetchTableWithFallbacks('maps', [
-      q('id,title,slug,description,external_url,sort_order,is_active', 'sort_order.asc.nullslast,id.asc'),
-      q('id,title,slug,description,external_url,is_active', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('locations', [
-      q('id,map_id,name,x,y,discussion_url,flag_sprite,description,image_url,marker_type,marker_color,layer_group,is_active', 'id.asc'),
-      q('id,map_id,name,x,y,discussion_url,flag_sprite,description,image_url,is_active', 'id.asc'),
-    ]),
+  const [maps, mapMarkers, mapRegions] = await Promise.all([
+    fetchTableWithFallbacks('maps', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('map_markers', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('map_regions', ['select=*']).catch(() => []),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    maps: (maps ?? []).filter((row) => row.is_active !== false),
-    locations: (locations ?? []).filter((row) => row.is_active !== false),
+    maps,
+    map_markers: mapMarkers,
+    map_regions: mapRegions,
   };
 }
 
 async function buildShopCatalogBundle() {
-  const [shopItems, thresholds, effectDefinitions, factions, items] = await Promise.all([
-    fetchTableWithFallbacks('shop_items', [
-      q('id,item_id,buy_price,is_active,stock_quantity,item:items(id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id)', 'id.asc'),
-      q('id,item_id,buy_price,is_active,stock_quantity', 'id.asc'),
-    ]),
-    fetchTableWithFallbacks('reputation_thresholds', [
-      q('id,faction_id,target_type,target_id,required_value,note', 'id.asc'),
-    ]).catch(() => []),
-    fetchTableWithFallbacks('effect_definitions', [
-      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category,description,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]).catch(() => []),
-    fetchTableWithFallbacks('factions', [
-      q('id,name', 'name.asc'),
-    ]).catch(() => []),
-    fetchTableWithFallbacks('items', [
-      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
-      q('id,name,category,rarity,image_url,description,buy_price,sell_price', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
+  const [shopItems, items, factions, thresholds, effectDefinitions] = await Promise.all([
+    fetchTableWithFallbacks('shop_items', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('items', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('factions', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('reputation_thresholds', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('state_definitions', ['select=*']).catch(() => []),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    shop_items: (shopItems ?? []).filter((row) => row.is_active !== false),
-    thresholds: (thresholds ?? []).filter((row) => String(row.target_type ?? '') === 'shop_item'),
-    effect_definitions: effectDefinitions ?? [],
-    factions: factions ?? [],
-    items: items ?? [],
+    shop_items: shopItems,
+    items,
+    factions,
+    thresholds,
+    effect_definitions: effectDefinitions,
   };
 }
 
 async function buildCraftCatalogBundle() {
-  const [items, skills, professions, recipes, recipeIngredients, recipeSkillRequirements, recipeSpellRequirements, spells, metamagicOptions, thresholds, effectDefinitions] = await Promise.all([
-    fetchTableWithFallbacks('items', [
-      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
-      q('id,name,category,rarity,image_url,description,buy_price,sell_price', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('skills', [
-      q('id,name,description,category_id,image_url,is_metamagic', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('professions', [
-      q('id,name,description,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('recipes', [
-      q('id,name,description,recipe_type,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
-      q('id,name,recipe_type,required_profession_id,required_profession_level', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('recipe_ingredients', [q('id,recipe_id,item_id,quantity', 'id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('recipe_skill_requirements', [q('id,recipe_id,skill_id', 'id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('recipe_spell_requirements', [q('id,recipe_id,spell_id', 'id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('spells', [
-      q('id,name,description,branch_id,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]),
-    fetchTableWithFallbacks('metamagic_options', [
-      q('id,name,description,required_skill_id', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]).catch(() => []),
-    fetchTableWithFallbacks('reputation_thresholds', [q('id,faction_id,target_type,target_id,required_value,note', 'id.asc')]).catch(() => []),
-    fetchTableWithFallbacks('effect_definitions', [
-      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
-      q('id,name,category,description,image_url', 'name.asc'),
-      q('id,name', 'name.asc'),
-    ]).catch(() => []),
+  const [recipes, recipeIngredients, items] = await Promise.all([
+    fetchTableWithFallbacks('recipes', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('recipe_ingredients', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('items', ['select=*']).catch(() => []),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    items: items ?? [],
-    skills: skills ?? [],
-    professions: professions ?? [],
-    recipes: recipes ?? [],
-    recipe_ingredients: recipeIngredients ?? [],
-    recipe_skill_requirements: recipeSkillRequirements ?? [],
-    recipe_spell_requirements: recipeSpellRequirements ?? [],
-    spells: spells ?? [],
-    metamagic_options: metamagicOptions ?? [],
-    thresholds: (thresholds ?? []).filter((row) => String(row.target_type ?? '') === 'recipe'),
-    effect_definitions: effectDefinitions ?? [],
+    recipes,
+    recipe_ingredients: recipeIngredients,
+    items,
   };
 }
-
 
 function buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog }) {
   const generatedAt = new Date().toISOString();
