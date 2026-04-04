@@ -207,14 +207,122 @@ async function buildContentBundle() {
   };
 }
 
+async function buildMapsPublicBundle() {
+  const [maps, locations] = await Promise.all([
+    fetchTableWithFallbacks('maps', [
+      q('id,title,slug,description,external_url,sort_order,is_active', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,slug,description,external_url,is_active', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('locations', [
+      q('id,map_id,name,x,y,discussion_url,flag_sprite,description,image_url,marker_type,marker_color,layer_group,is_active,sort_order', 'sort_order.asc.nullslast,id.asc'),
+      q('id,map_id,name,x,y,discussion_url,flag_sprite,description,image_url,marker_type,marker_color,layer_group,is_active', 'id.asc'),
+      q('id,map_id,name,x,y,discussion_url,flag_sprite,description,is_active', 'id.asc'),
+    ]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    maps: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(maps), ['description', 'external_url', 'is_active']), 'title'),
+    locations: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(locations), ['discussion_url', 'flag_sprite', 'description', 'image_url', 'marker_type', 'marker_color', 'layer_group', 'is_active']), 'name'),
+  };
+}
+
+async function buildShopCatalogBundle() {
+  const [shopItems, thresholds, effectDefinitions, factions] = await Promise.all([
+    fetchTableWithFallbacks('shop_items', [
+      q('id,item_id,buy_price,is_active,stock_quantity', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('reputation_thresholds', [
+      q('id,faction_id,target_type,target_id,required_value,note', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('effect_definitions', [
+      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
+      q('id,name,category,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('factions', [
+      q('id,name', 'name.asc'),
+    ]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    shop_items: normalizeOptionalKeys(shopItems, ['stock_quantity']),
+    thresholds: thresholds.filter((row) => row.target_type === 'shop_item'),
+    effect_definitions: normalizeOptionalKeys(effectDefinitions, ['description', 'image_url', 'craft_success_bonus', 'metamagic_power_bonus', 'shop_discount_percent']),
+    factions: factions,
+  };
+}
+
+async function buildCraftCatalogBundle() {
+  const [
+    items,
+    skills,
+    professions,
+    recipes,
+    recipeIngredients,
+    recipeSkillRequirements,
+    recipeSpellRequirements,
+    spells,
+    metamagicOptions,
+    thresholds,
+    effectDefinitions,
+  ] = await Promise.all([
+    fetchTableWithFallbacks('items', [
+      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
+      q('id,name,category,rarity,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('skills', [
+      q('id,name,description,category_id,image_url,is_metamagic', 'name.asc'),
+      q('id,name,category_id,image_url,is_metamagic', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('professions', [
+      q('id,name,description,image_url', 'name.asc'),
+      q('id,name,image_url', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('recipes', [
+      q('id,name,description,recipe_type,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('recipe_ingredients', [q('id,recipe_id,item_id,quantity', 'id.asc')]),
+    fetchTableWithFallbacks('recipe_skill_requirements', [q('id,recipe_id,skill_id', 'id.asc')]),
+    fetchTableWithFallbacks('recipe_spell_requirements', [q('id,recipe_id,spell_id', 'id.asc')]),
+    fetchTableWithFallbacks('spells', [
+      q('id,name,description,branch_id,image_url', 'name.asc'),
+      q('id,name,branch_id,image_url', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('metamagic_options', [
+      q('id,name,description,required_skill_id', 'name.asc'),
+      q('id,name,required_skill_id', 'name.asc'),
+    ]),
+    fetchTableWithFallbacks('reputation_thresholds', [q('id,faction_id,target_type,target_id,required_value,note', 'id.asc')]),
+    fetchTableWithFallbacks('effect_definitions', [
+      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
+      q('id,name,category,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
+    ]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    items: normalizeOptionalKeys(items, ['description', 'image_url', 'category_id', 'rarity_id', 'equip_slot_type', 'item_use_type', 'teaches_skill_id', 'teaches_spell_id']),
+    skills: normalizeOptionalKeys(skills, ['description', 'category_id', 'image_url', 'is_metamagic']),
+    professions: normalizeOptionalKeys(professions, ['description', 'image_url']),
+    recipes: normalizeOptionalKeys(recipes, ['description', 'required_profession_id', 'base_item_id', 'base_item_quantity']),
+    recipe_ingredients: recipeIngredients,
+    recipe_skill_requirements: recipeSkillRequirements,
+    recipe_spell_requirements: recipeSpellRequirements,
+    spells: normalizeOptionalKeys(spells, ['description', 'branch_id', 'image_url']),
+    metamagic_options: normalizeOptionalKeys(metamagicOptions, ['description', 'required_skill_id']),
+    thresholds: thresholds.filter((row) => row.target_type === 'recipe'),
+    effect_definitions: normalizeOptionalKeys(effectDefinitions, ['description', 'image_url', 'craft_success_bonus', 'metamagic_power_bonus', 'shop_discount_percent']),
+  };
+}
+
 async function buildCharacterCardsBundle() {
   let rows = [];
 
   try {
     const visibleRows = await callRpc('list_public_approved_character_sheets');
     rows = Array.isArray(visibleRows) ? visibleRows : [];
-  } catch (error) {
-    // RPC may require end-user auth in some projects; fall back to direct approved rows.
+  } catch {
     rows = [];
   }
 
@@ -224,7 +332,7 @@ async function buildCharacterCardsBundle() {
       q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,biography,personality,weaknesses,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
       q('id,owner_id,full_name,status,updated_at', 'updated_at.desc.nullslast'),
     ]),
-    fetchTableWithFallbacks('profiles', [q('id,nickname,vk_user_id', 'nickname.asc')]),
+    fetchTableWithFallbacks('profiles', [q('id,nickname', 'nickname.asc')]),
     fetchTableWithFallbacks('character_skills', [q('character_id,skill_id', 'character_id.asc')]),
     fetchTableWithFallbacks('skills', [
       q('id,category_id,name,description,summary,content_html,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
@@ -297,7 +405,6 @@ async function buildCharacterCardsBundle() {
   const cards = sourceRows.map((row) => ({
     id: row.id,
     owner_id: row.owner_id,
-    owner_vk_user_id: profileById.get(row.owner_id)?.vk_user_id ?? null,
     owner_nickname: profileById.get(row.owner_id)?.nickname ?? null,
     source: 'approved_snapshot',
     character: { ...row },
@@ -315,8 +422,7 @@ async function buildCharacterCardsBundle() {
   };
 }
 
-
-function buildManifest({ reference, content, characterCards }) {
+function buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog }) {
   const generatedAt = new Date().toISOString();
   return {
     generated_at: generatedAt,
@@ -336,6 +442,21 @@ function buildManifest({ reference, content, characterCards }) {
         path: 'bundles/character-cards.json',
         public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/character-cards.json`,
         generated_at: characterCards.generated_at,
+      },
+      'maps-public': {
+        path: 'bundles/maps-public.json',
+        public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/maps-public.json`,
+        generated_at: mapsPublic.generated_at,
+      },
+      'shop-catalog': {
+        path: 'bundles/shop-catalog.json',
+        public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/shop-catalog.json`,
+        generated_at: shopCatalog.generated_at,
+      },
+      'craft-catalog': {
+        path: 'bundles/craft-catalog.json',
+        public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/craft-catalog.json`,
+        generated_at: craftCatalog.generated_at,
       },
     },
   };
@@ -364,6 +485,9 @@ async function writeSupportPages() {
       <li><a href="./bundles/reference.json">reference.json</a></li>
       <li><a href="./bundles/content.json">content.json</a></li>
       <li><a href="./bundles/character-cards.json">character-cards.json</a></li>
+      <li><a href="./bundles/maps-public.json">maps-public.json</a></li>
+      <li><a href="./bundles/shop-catalog.json">shop-catalog.json</a></li>
+      <li><a href="./bundles/craft-catalog.json">craft-catalog.json</a></li>
       <li><a href="./bundles/manifest.json">manifest.json</a></li>
     </ul>
   </body>
@@ -377,18 +501,24 @@ async function writeSupportPages() {
 async function main() {
   await mkdir(BUNDLES_DIR, { recursive: true });
 
-  const [reference, content, characterCards] = await Promise.all([
+  const [reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog] = await Promise.all([
     buildReferenceBundle(),
     buildContentBundle(),
     buildCharacterCardsBundle(),
+    buildMapsPublicBundle(),
+    buildShopCatalogBundle(),
+    buildCraftCatalogBundle(),
   ]);
 
-  const manifest = buildManifest({ reference, content, characterCards });
+  const manifest = buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog });
 
   await Promise.all([
     writeJson(path.join(BUNDLES_DIR, 'reference.json'), reference),
     writeJson(path.join(BUNDLES_DIR, 'content.json'), content),
     writeJson(path.join(BUNDLES_DIR, 'character-cards.json'), characterCards),
+    writeJson(path.join(BUNDLES_DIR, 'maps-public.json'), mapsPublic),
+    writeJson(path.join(BUNDLES_DIR, 'shop-catalog.json'), shopCatalog),
+    writeJson(path.join(BUNDLES_DIR, 'craft-catalog.json'), craftCatalog),
     writeJson(path.join(BUNDLES_DIR, 'manifest.json'), manifest),
     writeSupportPages(),
   ]);
