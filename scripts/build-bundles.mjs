@@ -44,6 +44,20 @@ async function fetchTable(table, query) {
   return await res.json();
 }
 
+async function fetchTableWithFallbacks(table, queries) {
+  const errors = [];
+  for (const query of queries) {
+    try {
+      return await fetchTable(table, query);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(`REST ${table} failed for all query variants:
+${errors.join('
+')}`);
+}
+
 async function callRpc(name, body = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: 'POST',
@@ -57,10 +71,6 @@ async function callRpc(name, body = {}) {
   }
 
   return await res.json();
-}
-
-function sortByName(rows, field = 'name') {
-  return [...rows].sort((a, b) => String(a?.[field] ?? '').localeCompare(String(b?.[field] ?? ''), 'ru'));
 }
 
 function sortBySortOrderThen(rows, field = 'name') {
@@ -92,7 +102,10 @@ async function buildReferenceBundle() {
     fetchTable('skills', 'select=id,category_id,name,description,summary,content_html,image_url,is_metamagic,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level&order=sort_order.asc.nullslast,name.asc'),
     fetchTable('magic_branches', 'select=id,name,description,summary,content_html,image_url,sort_order,is_active,required_faction_id,required_reputation_value,is_hidden_until_unlocked&order=sort_order.asc.nullslast,name.asc'),
     fetchTable('spells', 'select=id,branch_id,name,description,summary,content_html,image_url,sort_order,is_active,required_race_id,required_subrace_id,required_profession_id,required_profession_level&order=sort_order.asc.nullslast,name.asc'),
-    fetchTable('state_definitions', 'select=id,name,summary,description,content_html,image_url,sort_order,is_active&order=sort_order.asc.nullslast,name.asc'),
+    fetchTableWithFallbacks('state_definitions', [
+      'select=id,name,summary,description,content_html,image_url,sort_order,is_active&order=sort_order.asc.nullslast,name.asc',
+      'select=id,name,summary,content_html,image_url,sort_order,is_active&order=sort_order.asc.nullslast,name.asc',
+    ]),
   ]);
 
   return {
