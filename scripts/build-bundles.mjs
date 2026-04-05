@@ -221,8 +221,8 @@ async function buildWorldPublicBundle() {
       q('id,title,status', 'id.desc'),
     ]),
     fetchTableWithFallbacks('knowledge_hunts', [
-      q('id,title,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
-      q('id,title,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,summary_html,content_html,status,target_type,target_id,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,content_html,status,target_type,target_id,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
       q('id,title,status,target_type,target_id,sort_order', 'sort_order.asc.nullslast,id.asc'),
     ]),
     fetchTableWithFallbacks('library_entries', [
@@ -248,7 +248,7 @@ async function buildWorldPublicBundle() {
     generated_at: new Date().toISOString(),
     achievements: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(achievements), ['description', 'image_url', 'reward_title']), 'title'),
     world_events: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(worldEvents), ['description', 'description_html', 'status', 'starts_at_text', 'ends_at_text', 'impact_note', 'impact_note_html']), 'title'),
-    knowledge_hunts: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(knowledgeHunts), ['summary', 'description', 'summary_html', 'content_html', 'status', 'target_type', 'target_id', 'image_url', 'reward_currency', 'reward_faction_id', 'reward_reputation_value']), 'title'),
+    knowledge_hunts: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(knowledgeHunts), ['summary', 'description', 'summary_html', 'content_html', 'status', 'target_type', 'target_id', 'reward_currency', 'reward_faction_id', 'reward_reputation_value']), 'title'),
     library_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(libraryEntries), ['entry_type', 'summary', 'content', 'content_html', 'image_url', 'external_url', 'is_published']), 'title'),
     npc_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(npcEntries), ['npc_type', 'faction_id', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
     bestiary_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(bestiaryEntries), ['creature_type', 'danger_level', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
