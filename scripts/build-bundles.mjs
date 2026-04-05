@@ -366,8 +366,9 @@ async function buildCharacterCardsBundle() {
 
 
 async function buildMapsPublicBundle() {
-  const [maps, mapMarkers, mapRegions] = await Promise.all([
+  const [maps, locations, mapMarkers, mapRegions] = await Promise.all([
     fetchTableWithFallbacks('maps', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('locations', ['select=*']).catch(() => []),
     fetchTableWithFallbacks('map_markers', ['select=*']).catch(() => []),
     fetchTableWithFallbacks('map_regions', ['select=*']).catch(() => []),
   ]);
@@ -375,6 +376,7 @@ async function buildMapsPublicBundle() {
   return {
     generated_at: new Date().toISOString(),
     maps,
+    locations,
     map_markers: mapMarkers,
     map_regions: mapRegions,
   };
@@ -531,4 +533,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
