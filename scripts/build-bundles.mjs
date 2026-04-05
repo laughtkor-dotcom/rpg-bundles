@@ -207,6 +207,54 @@ async function buildContentBundle() {
   };
 }
 
+
+async function buildWorldPublicBundle() {
+  const [achievements, worldEvents, knowledgeHunts, libraryEntries, npcEntries, bestiaryEntries] = await Promise.all([
+    fetchTableWithFallbacks('achievements', [
+      q('id,title,description,image_url,reward_title', 'id.desc'),
+      q('id,title,description,image_url', 'id.desc'),
+      q('id,title', 'id.desc'),
+    ]),
+    fetchTableWithFallbacks('world_events', [
+      q('id,title,description,description_html,status,starts_at_text,ends_at_text,impact_note,impact_note_html', 'id.desc'),
+      q('id,title,description,status,starts_at_text,ends_at_text,impact_note', 'id.desc'),
+      q('id,title,status', 'id.desc'),
+    ]),
+    fetchTableWithFallbacks('knowledge_hunts', [
+      q('id,title,summary,description,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,summary,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,status,target_type,target_id,sort_order', 'sort_order.asc.nullslast,id.asc'),
+    ]),
+    fetchTableWithFallbacks('library_entries', [
+      q('id,title,entry_type,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('npc_entries', [
+      q('id,name,npc_type,faction_id,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('bestiary_entries', [
+      q('id,name,creature_type,danger_level,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    achievements: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(achievements), ['description', 'image_url', 'reward_title']), 'title'),
+    world_events: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(worldEvents), ['description', 'description_html', 'status', 'starts_at_text', 'ends_at_text', 'impact_note', 'impact_note_html']), 'title'),
+    knowledge_hunts: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(knowledgeHunts), ['summary', 'description', 'summary_html', 'content_html', 'status', 'target_type', 'target_id', 'image_url', 'reward_currency', 'reward_faction_id', 'reward_reputation_value']), 'title'),
+    library_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(libraryEntries), ['entry_type', 'summary', 'content', 'content_html', 'image_url', 'external_url', 'is_published']), 'title'),
+    npc_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(npcEntries), ['npc_type', 'faction_id', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
+    bestiary_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(bestiaryEntries), ['creature_type', 'danger_level', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
+  };
+}
+
 async function buildCharacterCardsBundle() {
   let rows = [];
 
@@ -365,7 +413,7 @@ async function buildCraftCatalogBundle() {
   };
 }
 
-function buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog }) {
+function buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog, worldPublic }) {
   const generatedAt = new Date().toISOString();
   return {
     generated_at: generatedAt,
@@ -401,6 +449,11 @@ function buildManifest({ reference, content, characterCards, mapsPublic, shopCat
         public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/craft-catalog.json`,
         generated_at: craftCatalog.generated_at,
       },
+      'world-public': {
+        path: 'bundles/world-public.json',
+        public_url: `${BUNDLE_PUBLIC_BASE_URL}/bundles/world-public.json`,
+        generated_at: worldPublic.generated_at,
+      },
     },
   };
 }
@@ -431,6 +484,7 @@ async function writeSupportPages() {
       <li><a href="./bundles/maps-public.json">maps-public.json</a></li>
       <li><a href="./bundles/shop-catalog.json">shop-catalog.json</a></li>
       <li><a href="./bundles/craft-catalog.json">craft-catalog.json</a></li>
+      <li><a href="./bundles/world-public.json">world-public.json</a></li>
       <li><a href="./bundles/manifest.json">manifest.json</a></li>
     </ul>
   </body>
@@ -444,16 +498,17 @@ async function writeSupportPages() {
 async function main() {
   await mkdir(BUNDLES_DIR, { recursive: true });
 
-  const [reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog] = await Promise.all([
+  const [reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog, worldPublic] = await Promise.all([
     buildReferenceBundle(),
     buildContentBundle(),
     buildCharacterCardsBundle(),
     buildMapsPublicBundle(),
     buildShopCatalogBundle(),
     buildCraftCatalogBundle(),
+    buildWorldPublicBundle(),
   ]);
 
-  const manifest = buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog });
+  const manifest = buildManifest({ reference, content, characterCards, mapsPublic, shopCatalog, craftCatalog, worldPublic });
 
   await Promise.all([
     writeJson(path.join(BUNDLES_DIR, 'reference.json'), reference),
@@ -462,6 +517,7 @@ async function main() {
     writeJson(path.join(BUNDLES_DIR, 'maps-public.json'), mapsPublic),
     writeJson(path.join(BUNDLES_DIR, 'shop-catalog.json'), shopCatalog),
     writeJson(path.join(BUNDLES_DIR, 'craft-catalog.json'), craftCatalog),
+    writeJson(path.join(BUNDLES_DIR, 'world-public.json'), worldPublic),
     writeJson(path.join(BUNDLES_DIR, 'manifest.json'), manifest),
     writeSupportPages(),
   ]);
@@ -474,4 +530,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
