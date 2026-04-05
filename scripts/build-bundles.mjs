@@ -221,8 +221,8 @@ async function buildWorldPublicBundle() {
       q('id,title,status', 'id.desc'),
     ]),
     fetchTableWithFallbacks('knowledge_hunts', [
-      q('id,title,summary,description,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
-      q('id,title,summary,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,summary_html,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,content_html,status,target_type,target_id,image_url,sort_order,reward_currency,reward_faction_id,reward_reputation_value', 'sort_order.asc.nullslast,id.asc'),
       q('id,title,status,target_type,target_id,sort_order', 'sort_order.asc.nullslast,id.asc'),
     ]),
     fetchTableWithFallbacks('library_entries', [
