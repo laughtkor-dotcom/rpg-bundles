@@ -267,7 +267,22 @@ async function buildCharacterCardsBundle() {
     rows = [];
   }
 
-  const [characters, profiles, characterSkills, skills, characterSpells, spells, characterProfessions, characterStates, stateDefinitions] = await Promise.all([
+  const [
+    characters,
+    profiles,
+    characterSkills,
+    skills,
+    characterSpells,
+    spells,
+    characterProfessions,
+    characterStates,
+    stateDefinitions,
+    factionReputations,
+    characterAchievements,
+    characterQuests,
+    characterKnowledgeHunts,
+    playerContracts,
+  ] = await Promise.all([
     fetchTableWithFallbacks('characters', [
       q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,appearance_html,biography,biography_html,personality,personality_html,weaknesses,weaknesses_html,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
       q('id,owner_id,full_name,gender,birth_day,birth_month,birth_year,race_id,subrace_id,faction_id,character_role_id,profession_id,image_url,appearance,biography,personality,weaknesses,status,moderation_note,created_at,updated_at', 'updated_at.desc.nullslast'),
@@ -295,6 +310,11 @@ async function buildCharacterCardsBundle() {
       q('id,name,image_url,is_active', 'name.asc'),
       q('id,name', 'name.asc'),
     ]).catch(() => []),
+    fetchTableWithFallbacks('faction_reputations', [q('id,character_id,faction_id,value,note', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('character_achievements', [q('id,character_id,achievement_id,awarded_at,note', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('character_quests', [q('id,character_id,quest_id,progress_status', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('character_knowledge_hunts', [q('id,character_id,knowledge_hunt_id,hunt_id,progress_status', 'character_id.asc')]).catch(() => []),
+    fetchTableWithFallbacks('player_contracts', [q('id,creator_profile_id,issuer_profile_id,assignee_profile_id,status', 'id.asc')]).catch(() => []),
   ]);
 
   const approvedCharacters = (characters ?? []).filter((row) => String(row.status ?? '') === 'approved');
@@ -338,6 +358,61 @@ async function buildCharacterCardsBundle() {
     statesByCharacterId.set(row.character_id, current);
   }
 
+  const reputationsByCharacterId = new Map();
+  for (const row of factionReputations ?? []) {
+    const current = reputationsByCharacterId.get(row.character_id) ?? [];
+    current.push({
+      id: row.id ?? 0,
+      character_id: row.character_id,
+      faction_id: row.faction_id,
+      value: row.value ?? 0,
+      note: row.note ?? null,
+    });
+    reputationsByCharacterId.set(row.character_id, current);
+  }
+
+  const achievementsByCharacterId = new Map();
+  for (const row of characterAchievements ?? []) {
+    const current = achievementsByCharacterId.get(row.character_id) ?? [];
+    current.push({
+      id: row.id ?? 0,
+      character_id: row.character_id,
+      achievement_id: row.achievement_id,
+      awarded_at: row.awarded_at ?? null,
+      note: row.note ?? null,
+    });
+    achievementsByCharacterId.set(row.character_id, current);
+  }
+
+  const completedQuestIdsByCharacterId = new Map();
+  for (const row of characterQuests ?? []) {
+    if (String(row.progress_status ?? '') !== 'completed') continue;
+    const current = completedQuestIdsByCharacterId.get(row.character_id) ?? [];
+    current.push(row.quest_id);
+    completedQuestIdsByCharacterId.set(row.character_id, current);
+  }
+
+  const completedHuntIdsByCharacterId = new Map();
+  for (const row of characterKnowledgeHunts ?? []) {
+    if (String(row.progress_status ?? '') !== 'completed') continue;
+    const huntId = row.knowledge_hunt_id ?? row.hunt_id;
+    if (!huntId) continue;
+    const current = completedHuntIdsByCharacterId.get(row.character_id) ?? [];
+    current.push(huntId);
+    completedHuntIdsByCharacterId.set(row.character_id, current);
+  }
+
+  const completedContractIdsByProfileId = new Map();
+  for (const row of playerContracts ?? []) {
+    if (String(row.status ?? '') !== 'completed') continue;
+    for (const profileId of [row.creator_profile_id, row.issuer_profile_id, row.assignee_profile_id]) {
+      if (!profileId) continue;
+      const current = completedContractIdsByProfileId.get(profileId) ?? [];
+      current.push(row.id);
+      completedContractIdsByProfileId.set(profileId, current);
+    }
+  }
+
   const rpcRowIds = new Set((rows ?? []).map((row) => row.id));
   const sourceRows = rpcRowIds.size > 0
     ? approvedCharacters.filter((row) => rpcRowIds.has(row.id))
@@ -353,6 +428,11 @@ async function buildCharacterCardsBundle() {
     skills: (skillLinksByCharacterId.get(row.id) ?? []).map((skillId) => skillById.get(skillId)).filter(Boolean),
     spells: (spellLinksByCharacterId.get(row.id) ?? []).map((spellId) => spellById.get(spellId)).filter(Boolean),
     professions: professionsByCharacterId.get(row.id) ?? [],
+    reputations: reputationsByCharacterId.get(row.id) ?? [],
+    achievements: achievementsByCharacterId.get(row.id) ?? [],
+    completed_quest_ids: [...new Set(completedQuestIdsByCharacterId.get(row.id) ?? [])],
+    completed_hunt_ids: [...new Set(completedHuntIdsByCharacterId.get(row.id) ?? [])],
+    completed_contract_ids: [...new Set(completedContractIdsByProfileId.get(row.owner_id) ?? [])],
     states: statesByCharacterId.get(row.id) ?? [],
   }));
 
