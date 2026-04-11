@@ -196,15 +196,37 @@ async function buildReferenceBundle() {
 }
 
 async function buildContentBundle() {
-  const contentPages = await fetchTableWithFallbacks('content_pages', [
-    q('id,slug,title,summary,content,content_html,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
-    q('id,slug,title,summary,content,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
-    q('id,slug,title,summary,content,image_url,external_url,is_published,updated_at', 'id.asc'),
+  const [contentPages, libraryEntries, npcEntries, bestiaryEntries] = await Promise.all([
+    fetchTableWithFallbacks('content_pages', [
+      q('id,slug,title,summary,content,content_html,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
+      q('id,slug,title,summary,content,image_url,external_url,sort_order,is_published,updated_at', 'sort_order.asc.nullslast,id.asc'),
+      q('id,slug,title,summary,content,image_url,external_url,is_published,updated_at', 'id.asc'),
+    ]),
+    fetchTableWithFallbacks('library_entries', [
+      q('id,title,entry_type,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,title,entry_type,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('npc_entries', [
+      q('id,name,npc_type,faction_id,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,npc_type,faction_id,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,npc_type,faction_id,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('bestiary_entries', [
+      q('id,name,creature_type,danger_level,summary,description,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,content_html,image_url,external_url,sort_order,is_published', 'sort_order.asc.nullslast,id.asc'),
+      q('id,name,creature_type,danger_level,summary,description,content,image_url,external_url,is_published', 'id.asc'),
+      q('id,name,creature_type,danger_level,summary,content,image_url,external_url,is_published', 'id.asc'),
+    ]).catch(() => []),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
     content_pages: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(contentPages), ['content', 'summary', 'content_html', 'image_url', 'external_url', 'is_published', 'updated_at']), 'title'),
+    library_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(libraryEntries), ['entry_type', 'summary', 'content', 'content_html', 'image_url', 'external_url', 'is_published']), 'title'),
+    npc_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(npcEntries), ['npc_type', 'faction_id', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
+    bestiary_entries: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(bestiaryEntries), ['creature_type', 'danger_level', 'summary', 'description', 'content', 'content_html', 'image_url', 'external_url', 'is_published'])),
   };
 }
 
@@ -452,45 +474,63 @@ async function buildShopCatalogBundle() {
 }
 
 async function buildCraftCatalogBundle() {
-  const [
-    recipes,
-    recipeIngredients,
-    items,
-    skills,
-    professions,
-    recipeSkillRequirements,
-    recipeSpellRequirements,
-    spells,
-    metamagicOptions,
-    thresholds,
-    effectDefinitions,
-  ] = await Promise.all([
-    fetchTableWithFallbacks('recipes', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('recipe_ingredients', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('items', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('skills', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('professions', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('recipe_skill_requirements', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('recipe_spell_requirements', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('spells', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('metamagic_options', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('reputation_thresholds', ['select=*']).catch(() => []),
-    fetchTableWithFallbacks('effect_definitions', ['select=*']).catch(() => []),
+  const [items, skills, professions, recipes, recipeIngredients, recipeSkillRequirements, recipeSpellRequirements, spells, metamagicOptions, thresholds, effectDefinitions] = await Promise.all([
+    fetchTableWithFallbacks('items', [
+      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id,is_attachment,mod_slot_count,is_consumed_on_use', 'name.asc'),
+      q('id,name,category,rarity,category_id,rarity_id,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness,item_use_type,teaches_skill_id,teaches_spell_id', 'name.asc'),
+      q('id,name,category,rarity,image_url,description,buy_price,sell_price,can_gift,can_delete,is_equippable,equip_slot_type,weapon_handedness', 'name.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('skills', [
+      q('id,name,description,summary,content_html,category_id,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,name,description,category_id,image_url,is_metamagic,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,name,description,category_id,image_url,is_metamagic', 'name.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('professions', [
+      q('id,name,description,summary,content_html,image_url,sort_order,is_active', 'sort_order.asc.nullslast,name.asc'),
+      q('id,name,description,image_url', 'name.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('recipes', [
+      q('id,name,description,recipe_type,result_item_id,result_quantity,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
+      q('id,name,description,recipe_type,success_chance,required_profession_id,required_profession_level,base_item_id,base_item_quantity', 'name.asc'),
+      'select=*',
+    ]).catch(() => []),
+    fetchTableWithFallbacks('recipe_ingredients', [q('id,recipe_id,item_id,quantity', 'recipe_id.asc,id.asc'), 'select=*']).catch(() => []),
+    fetchTableWithFallbacks('recipe_skill_requirements', [q('id,recipe_id,skill_id', 'recipe_id.asc,id.asc'), 'select=*']).catch(() => []),
+    fetchTableWithFallbacks('recipe_spell_requirements', [q('id,recipe_id,spell_id', 'recipe_id.asc,id.asc'), 'select=*']).catch(() => []),
+    fetchTableWithFallbacks('spells', [
+      q('id,name,description,summary,content_html,branch_id,image_url,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,name,description,branch_id,image_url,required_race_id,required_subrace_id,required_profession_id,required_profession_level', 'name.asc'),
+      q('id,name,description,branch_id,image_url', 'name.asc'),
+    ]).catch(() => []),
+    fetchTableWithFallbacks('metamagic_options', [
+      q('id,name,description,required_skill_id', 'name.asc'),
+      q('id,name,description', 'name.asc'),
+      'select=*',
+    ]).catch(() => []),
+    fetchTableWithFallbacks('reputation_thresholds', [
+      q('id,faction_id,target_type,target_id,required_value,note', 'id.asc'),
+      'select=*',
+    ]).then((rows) => rows.filter((row) => row?.target_type === 'recipe')).catch(() => []),
+    fetchTableWithFallbacks('effect_definitions', [
+      q('id,name,category,description,image_url,craft_success_bonus,metamagic_power_bonus,shop_discount_percent', 'name.asc'),
+      q('id,name,category,description,image_url', 'name.asc'),
+      'select=*',
+    ]).catch(() => []),
   ]);
 
   return {
     generated_at: new Date().toISOString(),
-    recipes,
-    recipe_ingredients: recipeIngredients,
-    items,
-    skills,
-    professions,
-    recipe_skill_requirements: recipeSkillRequirements,
-    recipe_spell_requirements: recipeSpellRequirements,
-    spells,
-    metamagic_options: metamagicOptions,
-    thresholds,
-    effect_definitions: effectDefinitions,
+    items: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(items), ['category', 'rarity', 'category_id', 'rarity_id', 'image_url', 'description', 'buy_price', 'sell_price', 'can_gift', 'can_delete', 'is_equippable', 'equip_slot_type', 'weapon_handedness', 'item_use_type', 'teaches_skill_id', 'teaches_spell_id', 'is_attachment', 'mod_slot_count', 'is_consumed_on_use']), 'name'),
+    skills: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(skills), ['description', 'summary', 'content_html', 'category_id', 'image_url', 'is_metamagic', 'required_race_id', 'required_subrace_id', 'required_profession_id', 'required_profession_level']), 'name'),
+    professions: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(professions), ['description', 'summary', 'content_html', 'image_url', 'sort_order', 'is_active']), 'name'),
+    recipes: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(recipes), ['description', 'recipe_type', 'result_item_id', 'result_quantity', 'success_chance', 'required_profession_id', 'required_profession_level', 'base_item_id', 'base_item_quantity']), 'name'),
+    recipe_ingredients: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(recipeIngredients), ['recipe_id', 'item_id', 'quantity']), 'id'),
+    recipe_skill_requirements: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(recipeSkillRequirements), ['recipe_id', 'skill_id']), 'id'),
+    recipe_spell_requirements: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(recipeSpellRequirements), ['recipe_id', 'spell_id']), 'id'),
+    spells: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(spells), ['description', 'summary', 'content_html', 'branch_id', 'image_url', 'required_race_id', 'required_subrace_id', 'required_profession_id', 'required_profession_level']), 'name'),
+    metamagic_options: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(metamagicOptions), ['description', 'required_skill_id']), 'name'),
+    thresholds: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(thresholds), ['faction_id', 'target_type', 'target_id', 'required_value', 'note']), 'id'),
+    effect_definitions: sortBySortOrderThen(normalizeOptionalKeys(withDefaultSortOrder(effectDefinitions), ['category', 'description', 'image_url', 'craft_success_bonus', 'metamagic_power_bonus', 'shop_discount_percent']), 'name'),
   };
 }
 
