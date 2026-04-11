@@ -452,10 +452,30 @@ async function buildShopCatalogBundle() {
 }
 
 async function buildCraftCatalogBundle() {
-  const [recipes, recipeIngredients, items] = await Promise.all([
+  const [
+    recipes,
+    recipeIngredients,
+    items,
+    skills,
+    professions,
+    recipeSkillRequirements,
+    recipeSpellRequirements,
+    spells,
+    metamagicOptions,
+    thresholds,
+    effectDefinitions,
+  ] = await Promise.all([
     fetchTableWithFallbacks('recipes', ['select=*']).catch(() => []),
     fetchTableWithFallbacks('recipe_ingredients', ['select=*']).catch(() => []),
     fetchTableWithFallbacks('items', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('skills', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('professions', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('recipe_skill_requirements', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('recipe_spell_requirements', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('spells', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('metamagic_options', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('reputation_thresholds', ['select=*']).catch(() => []),
+    fetchTableWithFallbacks('effect_definitions', ['select=*']).catch(() => []),
   ]);
 
   return {
@@ -463,6 +483,14 @@ async function buildCraftCatalogBundle() {
     recipes,
     recipe_ingredients: recipeIngredients,
     items,
+    skills,
+    professions,
+    recipe_skill_requirements: recipeSkillRequirements,
+    recipe_spell_requirements: recipeSpellRequirements,
+    spells,
+    metamagic_options: metamagicOptions,
+    thresholds,
+    effect_definitions: effectDefinitions,
   };
 }
 
